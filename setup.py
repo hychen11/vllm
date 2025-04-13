@@ -230,6 +230,7 @@ class cmake_build_ext(build_ext):
             targets.append(target_name(ext.name))
 
         num_jobs, _ = self.compute_num_jobs()
+        num_jobs = 4
 
         build_args = [
             "--build",

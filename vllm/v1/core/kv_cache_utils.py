@@ -474,7 +474,6 @@ def estimate_max_model_len(vllm_config: VllmConfig,
     Returns:
         The estimated maximum model length that can fit in the available memory.
     """
-
     # Define a function to check if a given model length fits in memory
     def fits_in_memory(model_len: int) -> bool:
         # Modify the max_model_len for this calculation
@@ -485,6 +484,8 @@ def estimate_max_model_len(vllm_config: VllmConfig,
              for layer_spec in kv_cache_spec.values()),
             start=0,
         )
+        print(available_memory,memory_needed)
+    
         return memory_needed <= available_memory
 
     # Binary search for the maximum model length
@@ -494,17 +495,15 @@ def estimate_max_model_len(vllm_config: VllmConfig,
     # If even the smallest model length doesn't fit, return 0
     if not fits_in_memory(left):
         return 0
-
     # Binary search for the maximum model length that fits
-    result = 1
-    while left <= right:
+    while left +1 < right:
         mid = (left + right) // 2
         if fits_in_memory(mid):
-            result = mid
-            left = mid + 1
+            left = mid
         else:
-            right = mid - 1
-    return result
+            right = mid
+    print("left",left)
+    return left
 
 
 def check_enough_kv_cache_memory(vllm_config: VllmConfig,
@@ -537,6 +536,9 @@ def check_enough_kv_cache_memory(vllm_config: VllmConfig,
         # Estimate the maximum model length that can fit in the available memory
         estimated_max_len = estimate_max_model_len(vllm_config, kv_cache_spec,
                                                    available_memory)
+        max_model_len=estimated_max_len
+        print(f"max_model_len:{max_model_len}")
+        return
         estimated_msg = ""
         if estimated_max_len > 0:
             estimated_msg = " Based on the available memory,"

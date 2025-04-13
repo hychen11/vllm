@@ -5,15 +5,21 @@ from vllm import LLM, SamplingParams
 # Sample prompts.
 prompts = [
     "Hello, my name is",
-    "The president of the United States is",
-    "The capital of France is",
-    "The future of AI is",
+    # "The president of the United States is",
+    # "The capital of France is",
+    # "The future of AI is",
 ]
 # Create a sampling params object.
 sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
 
 # Create an LLM.
-llm = LLM(model="facebook/opt-125m")
+llm = LLM(model="/home/hychen11/Desktop/models/llama3-3B",
+          dtype="float16",
+          gpu_memory_utilization=0.98,  
+          block_size=16,  
+          swap_space=4, 
+          enforce_eager=True,
+)
 # Generate texts from the prompts. The output is a list of RequestOutput objects
 # that contain the prompt, generated text, and other information.
 outputs = llm.generate(prompts, sampling_params)

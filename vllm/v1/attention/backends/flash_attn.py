@@ -558,6 +558,7 @@ def use_cascade_attention(
     use_alibi: bool,
     use_sliding_window: bool,
     num_sms: int,
+    sliding_window_size: Optional[int] = None,
 ) -> bool:
     """Decide whether to use cascade attention.
 
@@ -571,14 +572,22 @@ def use_cascade_attention(
     # possible to avoid any unnecessary computation.
     if common_prefix_len < 256:
         return False
-    # Cascade attention is currently not supported with these variants.
-    if use_alibi or use_sliding_window:
+    # Cascade attention is currently not supported with ALiBi.
+    if use_alibi:
         return False
     # Too few queries. Probably not worth using cascade attention.
     # We use an arbitrary threshold of 8 queries. TODO: Tune this threshold.
     num_reqs = len(query_lens)
     if num_reqs < 8:
         return False
+
+    # For sliding window attention, we can use cascade attention if all sequences
+    # are within the window size. In this case, it's equivalent to global attention.
+    if use_sliding_window and sliding_window_size is not None:
+        # Check if all sequences are within the window size
+        max_seq_len = np.max(query_lens)
+        if max_seq_len > sliding_window_size:
+            return False
 
     # Heuristics to decide whether using cascade attention is beneficial.
     # 1. When FlashDecoding is not used for normal attention, cascade attention
