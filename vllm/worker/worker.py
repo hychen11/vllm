@@ -293,7 +293,20 @@ class Worker(LocalOrDistributedWorkerBase):
             self.cache_config.is_attention_free,
             self.model_config.max_model_len,
             self.parallel_config.pipeline_parallel_size)
-
+        
+        max_model_len=self.model_config.max_model_len
+        block_size=self.cache_config.block_size
+        pipeline_parallel_size=self.parallel_config.pipeline_parallel_size
+        max_seq_len = block_size * (num_gpu_blocks // pipeline_parallel_size)
+        
+        cache_dtype=self.cache_config.cache_dtype
+        if cache_dtype=="fp8":
+            max_seq_len*=2
+            #assume default is fp16
+        
+        print(f"max_seq_len {max_seq_len} ,max_model_len {max_model_len}, cache type {cache_dtype}")
+        self.model_config.max_model_len=min(max_model_len,max_seq_len)
+            
         self.cache_config.num_gpu_blocks = num_gpu_blocks
         self.cache_config.num_cpu_blocks = num_cpu_blocks
 
@@ -531,7 +544,7 @@ def _check_if_gpu_supports_dtype(torch_dtype: torch.dtype):
 
 
 def raise_if_cache_size_invalid(num_gpu_blocks, block_size, is_attention_free,
-                                max_model_len, pipeline_parallel_size) -> None:
+                                max_model_len, pipeline_parallel_size)->None:
     if is_attention_free and num_gpu_blocks != 0:
         raise ValueError("No memory should be allocated for the cache blocks "
                          f"for an attention-free model, but {num_gpu_blocks} "
@@ -542,9 +555,15 @@ def raise_if_cache_size_invalid(num_gpu_blocks, block_size, is_attention_free,
                          "initializing the engine.")
     max_seq_len = block_size * (num_gpu_blocks // pipeline_parallel_size)
     if not is_attention_free and max_model_len > max_seq_len:
-        raise ValueError(
-            f"The model's max seq len ({max_model_len}) "
+        print(f"The model's max seq len ({max_model_len}) "
             "is larger than the maximum number of tokens that can be "
             f"stored in KV cache ({max_seq_len}). Try increasing "
             "`gpu_memory_utilization` or decreasing `max_model_len` when "
             "initializing the engine.")
+
+        # raise ValueError(
+        #     f"The model's max seq len ({max_model_len}) "
+        #     "is larger than the maximum number of tokens that can be "
+        #     f"stored in KV cache ({max_seq_len}). Try increasing "
+        #     "`gpu_memory_utilization` or decreasing `max_model_len` when "
+        #     "initializing the engine.")

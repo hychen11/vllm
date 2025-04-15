@@ -484,7 +484,7 @@ def estimate_max_model_len(vllm_config: VllmConfig,
              for layer_spec in kv_cache_spec.values()),
             start=0,
         )
-        print(available_memory,memory_needed)
+        # print(available_memory,memory_needed)
     
         return memory_needed <= available_memory
 
@@ -502,7 +502,6 @@ def estimate_max_model_len(vllm_config: VllmConfig,
             left = mid
         else:
             right = mid
-    print("left",left)
     return left
 
 
