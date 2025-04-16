@@ -68,18 +68,18 @@ sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
 # Create an LLM.
 llm = LLM(
     model="/home/hychen11/Desktop/models/llama3-3B",
-    quantization="bitsandbytes",
+    # quantization="bitsandbytes",
     dtype="float16",
     kv_cache_dtype="auto",  # 使用fp8减少内存占用
     gpu_memory_utilization=0.98,  # 使用90%的GPU内存
-    block_size=32,  # 减小block size以支持更小的显存
+    block_size=16,  # 减小block size以支持更小的显存
     swap_space=4,  # 使用16GB的swap空间
     enforce_eager=True,
 )
 
 # Generate texts from the prompts. The output is a list of RequestOutput objects
 # that contain the prompt, generated text, and other information.
-outputs = llm.generate(prompt, sampling_params)
+outputs = llm.generate(prompts, sampling_params)
 # Print the outputs.
 print("\nGenerated Outputs:\n" + "-" * 60)
 for output in outputs:

@@ -24,7 +24,7 @@ from vllm.prompt_adapter.request import PromptAdapterRequest
 from vllm.sequence import (ExecuteModelRequest, IntermediateTensors,
                            SequenceGroupMetadata, SequenceGroupMetadataDelta)
 from vllm.utils import (GiB_bytes, MemorySnapshot, bind_kv_cache,
-                        memory_profiling)
+                        memory_profiling, get_kv_cache_torch_dtype)
 from vllm.worker.cache_engine import CacheEngine
 from vllm.worker.enc_dec_model_runner import EncoderDecoderModelRunner
 from vllm.worker.model_runner import GPUModelRunnerBase, ModelRunner
@@ -235,8 +235,6 @@ class Worker(LocalOrDistributedWorkerBase):
         available_kv_cache_memory = (memory_for_current_instance -
                                      result.non_kv_cache_memory)
 
-        # Calculate the number of blocks that can be allocated with the
-        # profiled peak memory.
         cache_block_size = self.get_cache_block_size_bytes()
         if cache_block_size == 0:
             num_gpu_blocks = 0
@@ -247,6 +245,28 @@ class Worker(LocalOrDistributedWorkerBase):
                                  cache_block_size)
         num_gpu_blocks = max(num_gpu_blocks, 0)
         num_cpu_blocks = max(num_cpu_blocks, 0)
+        
+        # Get the cache dtype and its size
+        cache_dtype = get_kv_cache_torch_dtype(
+            self.cache_config.cache_dtype,
+            self.model_config.dtype
+        )
+        cache_dtype_size = torch.tensor([], dtype=cache_dtype).element_size()
+
+        # # Calculate the base block size
+        # base_block_size = self.cache_config.block_size
+        # # Adjust block size based on cache dtype
+        # if cache_dtype == torch.uint8:  # fp8
+        #     # For fp8, we can use larger blocks since each token uses less memory
+        #     adjusted_block_size = min(base_block_size * 2, 64)  # Cap at 64
+        # elif cache_dtype == torch.float32:
+        #     # For fp32, we need smaller blocks since each token uses more memory
+        #     adjusted_block_size = max(base_block_size // 2, 4)  # Don't go below 4
+        # else:
+        #     adjusted_block_size = base_block_size
+
+        # Update the block size in cache config
+        # self.cache_config.block_size = adjusted_block_size
 
         msg = (f"Memory profiling takes {result.profile_time:.2f} seconds\n"
                "the current vLLM instance can use "
@@ -262,7 +282,9 @@ class Worker(LocalOrDistributedWorkerBase):
                " PyTorch activation peak memory takes "
                f"{(result.torch_peak_increase / GiB_bytes):.2f}GiB;"
                " the rest of the memory reserved for KV Cache is "
-               f"{(available_kv_cache_memory / GiB_bytes):.2f}GiB.")
+               f"{(available_kv_cache_memory / GiB_bytes):.2f}GiB."
+               f"\nnum_gpu_blocks: {num_gpu_blocks} (num_cpu_blocks: {num_cpu_blocks})"
+               f"\nCache dtype: {cache_dtype}, dtype size: {cache_dtype_size} bytes")
 
         logger.info(msg)
         # Final cleanup
@@ -289,7 +311,8 @@ class Worker(LocalOrDistributedWorkerBase):
         This also warms up the model, which may record CUDA graphs.
         """
         raise_if_cache_size_invalid(
-            num_gpu_blocks, self.cache_config.block_size,
+            num_gpu_blocks, 
+            self.cache_config.block_size,
             self.cache_config.is_attention_free,
             self.model_config.max_model_len,
             self.parallel_config.pipeline_parallel_size)
@@ -297,15 +320,14 @@ class Worker(LocalOrDistributedWorkerBase):
         max_model_len=self.model_config.max_model_len
         block_size=self.cache_config.block_size
         pipeline_parallel_size=self.parallel_config.pipeline_parallel_size
+        
+        # Calculate the base max_seq_len
         max_seq_len = block_size * (num_gpu_blocks // pipeline_parallel_size)
         
-        cache_dtype=self.cache_config.cache_dtype
-        if cache_dtype=="fp8":
-            max_seq_len*=2
-            #assume default is fp16
-        
-        print(f"max_seq_len {max_seq_len} ,max_model_len {max_model_len}, cache type {cache_dtype}")
-        self.model_config.max_model_len=min(max_model_len,max_seq_len)
+        # Adjust max_seq_len based on cache dtype
+        print(f"max_seq_len {max_seq_len} ,max_model_len {max_model_len}")
+        # Update max_model_len to be the minimum of the two
+        self.model_config.max_model_len = min(max_model_len, max_seq_len)
             
         self.cache_config.num_gpu_blocks = num_gpu_blocks
         self.cache_config.num_cpu_blocks = num_cpu_blocks

@@ -323,6 +323,7 @@ class ModelConfig:
         rope_theta: Optional[float] = None,
         tokenizer_revision: Optional[str] = None,
         max_model_len: Optional[int] = None,
+        max_output_len: Optional[int] = None,
         spec_target_max_model_len: Optional[int] = None,
         quantization: Optional[str] = None,
         enforce_eager: Optional[bool] = None,
@@ -476,7 +477,7 @@ class ModelConfig:
                 self.hf_text_config.interleaved_sliding_window = sliding_window
                 delattr(self.hf_text_config, "sliding_window")
                 sliding_window = None
-
+        self.max_output_len=max_output_len
         self.max_model_len = _get_and_verify_max_len(
             hf_config=self.hf_text_config,
             max_model_len=max_model_len,
