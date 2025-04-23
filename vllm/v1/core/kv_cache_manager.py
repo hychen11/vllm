@@ -2,7 +2,7 @@
 
 from collections import defaultdict
 from collections.abc import Iterable
-from typing import Optional
+from typing import Optional, List
 
 from vllm.logger import init_logger
 from vllm.utils import cdiv, sha256
@@ -13,6 +13,7 @@ from vllm.v1.core.specialized_manager import get_specialized_manager
 from vllm.v1.kv_cache_interface import KVCacheConfig
 from vllm.v1.metrics.stats import PrefixCacheStats
 from vllm.v1.request import Request, RequestStatus
+from vllm.v1.core.trie_kv_cache import TrieKVCacheManager
 
 logger = init_logger(__name__)
 
@@ -27,6 +28,7 @@ class KVCacheManager:
         caching_hash_algo: str = "builtin",
         num_preallocate_tokens: int = 64,
         log_stats: bool = False,
+        use_trie: bool = True,
     ) -> None:
         assert len(kv_cache_config.kv_cache_groups) == 1, (
             "KVCacheManager does not support hybrid models with more than 1 "
@@ -81,6 +83,11 @@ class KVCacheManager:
         self.num_cached_block: dict[str, int] = {}
         self.prefix_cache_stats = PrefixCacheStats()
 
+        # 初始化Trie树管理器
+        self.use_trie = use_trie
+        if use_trie:
+            self.trie_manager = TrieKVCacheManager(block_size=self.block_size)
+
     @property
     def usage(self) -> float:
         """Get the KV cache usage.
@@ -115,6 +122,14 @@ class KVCacheManager:
         """
         if not self.enable_caching:
             # Prefix caching is disabled.
+            return [], 0
+
+        if self.use_trie:
+            # 使用Trie树查找最长前缀匹配
+            matched_prefix, kv_cache = self.trie_manager.find_longest_prefix(
+                request.all_token_ids)
+            if kv_cache is not None:
+                return [kv_cache], len(matched_prefix)
             return [], 0
 
         # The block hashes for the request may already be computed
@@ -285,6 +300,16 @@ class KVCacheManager:
 
         self.num_cached_block[
             request.request_id] = num_full_blocks_after_append
+
+        if self.use_trie and new_computed_blocks:
+            # 将新计算的块插入Trie树
+            for block in new_computed_blocks:
+                if block.block_hash:
+                    self.trie_manager.insert_sequence(
+                        block.block_hash.token_ids,
+                        block
+                    )
+
         return new_blocks
 
     def free(self, request: Request) -> None:
@@ -295,6 +320,10 @@ class KVCacheManager:
         Args:
             request: The request to free the blocks.
         """
+        if self.use_trie:
+            # 从Trie树中移除序列
+            self.trie_manager.remove_sequence(request.all_token_ids)
+
         # Default to [] in case a request is freed (aborted) before alloc.
         blocks = self.req_to_blocks.pop(request.request_id, [])
         ordered_blocks: Iterable[KVCacheBlock] = blocks
@@ -375,3 +404,9 @@ class KVCacheManager:
         is finished, not when it is preempted.
         """
         self.req_to_block_hashes.pop(request.request_id, None)
+
+    def get_shared_prefixes(self) -> List[List[int]]:
+        """Get all shared prefixes in the cache."""
+        if self.use_trie:
+            return self.trie_manager.get_shared_prefixes()
+        return []
